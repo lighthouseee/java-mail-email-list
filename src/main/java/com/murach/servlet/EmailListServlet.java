@@ -9,10 +9,11 @@ import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
 
-@WebServlet("/join")
+@WebServlet({"/join", "/thanks"})
 public class EmailListServlet extends HttpServlet {
 
     @Override
@@ -27,6 +28,7 @@ public class EmailListServlet extends HttpServlet {
         String firstName = request.getParameter("firstName");
         String lastName = request.getParameter("lastName");
 
+        // Validate input
         if (email == null || email.isBlank()
                 || firstName == null || firstName.isBlank()
                 || lastName == null || lastName.isBlank()) {
@@ -49,12 +51,17 @@ public class EmailListServlet extends HttpServlet {
         );
 
         try {
+            // Send real email
             MailUtil.sendWelcomeEmail(user);
 
-            request.setAttribute("user", user);
+            // Store user temporarily in session
+            HttpSession session = request.getSession();
+            session.setAttribute("user", user);
 
-            request.getRequestDispatcher("/thanks.jsp")
-                   .forward(request, response);
+            // Redirect to thank-you page
+            response.sendRedirect(
+                request.getContextPath() + "/thanks"
+            );
 
         } catch (MessagingException | IllegalStateException e) {
 
@@ -68,5 +75,39 @@ public class EmailListServlet extends HttpServlet {
             request.getRequestDispatcher("/index.jsp")
                    .forward(request, response);
         }
+    }
+
+    @Override
+    protected void doGet(
+            HttpServletRequest request,
+            HttpServletResponse response)
+            throws ServletException, IOException {
+
+        // Get existing session without creating a new one
+        HttpSession session = request.getSession(false);
+
+        // If user did not come from a successful registration,
+        // send them back to the form.
+        if (session == null || session.getAttribute("user") == null) {
+
+            response.sendRedirect(
+                request.getContextPath() + "/"
+            );
+
+            return;
+        }
+
+        // Get user from session
+        User user = (User) session.getAttribute("user");
+
+        // Pass user to thanks.jsp
+        request.setAttribute("user", user);
+
+        // Remove it from session so it doesn't remain stale
+        session.removeAttribute("user");
+
+        // Show thank-you page
+        request.getRequestDispatcher("/thanks.jsp")
+               .forward(request, response);
     }
 }

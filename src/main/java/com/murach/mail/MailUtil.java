@@ -2,146 +2,175 @@ package com.murach.mail;
 
 import com.murach.model.User;
 
-import jakarta.mail.Authenticator;
-import jakarta.mail.Message;
-import jakarta.mail.MessagingException;
-import jakarta.mail.PasswordAuthentication;
-import jakarta.mail.Session;
-import jakarta.mail.Transport;
-
-import jakarta.mail.internet.InternetAddress;
-import jakarta.mail.internet.MimeMessage;
-
-import java.util.Properties;
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 
 public class MailUtil {
 
-    public static void sendWelcomeEmail(User user)
-            throws MessagingException {
+    private static final String BREVO_API_URL =
+            "https://api.brevo.com/v3/smtp/email";
+
+    public static void sendWelcomeEmail(User user) {
 
         System.out.println("[MAIL] Starting email process...");
 
-        String mailUsername = System.getenv("MAIL_USERNAME");
-        String mailPassword = System.getenv("MAIL_PASSWORD");
+        String apiKey = System.getenv("BREVO_API_KEY");
+        String mailFrom = System.getenv("MAIL_FROM");
 
-        if (mailUsername == null || mailUsername.isBlank()) {
-            System.out.println("[MAIL ERROR] MAIL_USERNAME is missing.");
+        if (apiKey == null || apiKey.isBlank()) {
+            System.out.println("[MAIL ERROR] BREVO_API_KEY is missing.");
 
             throw new IllegalStateException(
-                "MAIL_USERNAME environment variable is not set."
+                    "BREVO_API_KEY environment variable is not set."
             );
         }
 
-        if (mailPassword == null || mailPassword.isBlank()) {
-            System.out.println("[MAIL ERROR] MAIL_PASSWORD is missing.");
+        if (mailFrom == null || mailFrom.isBlank()) {
+            System.out.println("[MAIL ERROR] MAIL_FROM is missing.");
 
             throw new IllegalStateException(
-                "MAIL_PASSWORD environment variable is not set."
+                    "MAIL_FROM environment variable is not set."
             );
         }
 
         System.out.println(
-            "[MAIL] Sending from: " + mailUsername
+                "[MAIL] Sending from: " + mailFrom
         );
 
         System.out.println(
-            "[MAIL] Sending to: " + user.getEmail()
+                "[MAIL] Sending to: " + user.getEmail()
         );
 
-        Properties properties = new Properties();
+        String subject =
+                "Thanks for joining our email list!";
 
-        properties.put(
-            "mail.smtp.auth",
-            "true"
-        );
+        String textContent =
+                "Hi " + user.getFirstName()
+                + " " + user.getLastName() + ",\n\n"
+                + "Thank you for joining our email list.\n\n"
+                + "We have received the following information:\n"
+                + "First name: " + user.getFirstName() + "\n"
+                + "Last name: " + user.getLastName() + "\n"
+                + "Email: " + user.getEmail() + "\n\n"
+                + "Welcome!";
 
-        properties.put(
-            "mail.smtp.starttls.enable",
-            "true"
-        );
+        String jsonBody =
+                "{"
+                + "\"sender\":{"
+                + "\"email\":\"" + escapeJson(mailFrom) + "\","
+                + "\"name\":\"Email List\""
+                + "},"
+                + "\"to\":[{"
+                + "\"email\":\"" + escapeJson(user.getEmail()) + "\","
+                + "\"name\":\""
+                + escapeJson(
+                        user.getFirstName()
+                        + " "
+                        + user.getLastName()
+                )
+                + "\""
+                + "}],"
+                + "\"subject\":\"" + escapeJson(subject) + "\","
+                + "\"textContent\":\""
+                + escapeJson(textContent)
+                + "\""
+                + "}";
 
-        properties.put(
-            "mail.smtp.starttls.required",
-            "true"
-        );
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
 
-        properties.put(
-            "mail.smtp.host",
-            "smtp.gmail.com"
-        );
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(BREVO_API_URL))
+                .timeout(Duration.ofSeconds(15))
+                .header("accept", "application/json")
+                .header("api-key", apiKey)
+                .header("content-type", "application/json")
+                .POST(
+                        HttpRequest.BodyPublishers.ofString(jsonBody)
+                )
+                .build();
 
-        properties.put(
-            "mail.smtp.port",
-            "587"
-        );
+        try {
 
-        // Prevent the application from hanging indefinitely
-        properties.put(
-            "mail.smtp.connectiontimeout",
-            "10000"
-        );
+            System.out.println(
+                    "[MAIL] Connecting to Brevo API..."
+            );
 
-        properties.put(
-            "mail.smtp.timeout",
-            "10000"
-        );
-
-        properties.put(
-            "mail.smtp.writetimeout",
-            "10000"
-        );
-
-        properties.put(
-            "mail.smtp.ssl.trust",
-            "smtp.gmail.com"
-        );
-
-        Session session = Session.getInstance(
-            properties,
-            new Authenticator() {
-                @Override
-                protected PasswordAuthentication
-                        getPasswordAuthentication() {
-
-                    return new PasswordAuthentication(
-                        mailUsername,
-                        mailPassword
+            HttpResponse<String> response =
+                    client.send(
+                            request,
+                            HttpResponse.BodyHandlers.ofString()
                     );
-                }
+
+            int statusCode = response.statusCode();
+
+            System.out.println(
+                    "[MAIL] Brevo response status: "
+                    + statusCode
+            );
+
+            if (statusCode >= 200 && statusCode < 300) {
+
+                System.out.println(
+                        "[MAIL] Email sent successfully."
+                );
+
+                return;
             }
-        );
 
-        Message message = new MimeMessage(session);
+            System.out.println(
+                    "[MAIL ERROR] Brevo API response: "
+                    + response.body()
+            );
 
-        message.setFrom(
-            new InternetAddress(mailUsername)
-        );
+            throw new IllegalStateException(
+                    "Brevo API returned HTTP "
+                    + statusCode
+            );
 
-        message.setRecipients(
-            Message.RecipientType.TO,
-            InternetAddress.parse(user.getEmail())
-        );
+        } catch (IOException e) {
 
-        message.setSubject(
-            "Thanks for joining our email list!"
-        );
+            System.out.println(
+                    "[MAIL ERROR] Network error: "
+                    + e.getMessage()
+            );
 
-        String emailBody =
-            "Hi " + user.getFirstName()
-            + " " + user.getLastName() + ",\n\n"
-            + "Thank you for joining our email list.\n\n"
-            + "We have received the following information:\n"
-            + "First name: " + user.getFirstName() + "\n"
-            + "Last name: " + user.getLastName() + "\n"
-            + "Email: " + user.getEmail() + "\n\n"
-            + "Welcome!";
+            throw new IllegalStateException(
+                    "Unable to connect to Brevo API.",
+                    e
+            );
 
-        message.setText(emailBody);
+        } catch (InterruptedException e) {
 
-        System.out.println("[MAIL] Connecting to Gmail SMTP...");
+            Thread.currentThread().interrupt();
 
-        Transport.send(message);
+            System.out.println(
+                    "[MAIL ERROR] Request was interrupted."
+            );
 
-        System.out.println("[MAIL] Email sent successfully.");
+            throw new IllegalStateException(
+                    "Email request was interrupted.",
+                    e
+            );
+        }
+    }
+
+    private static String escapeJson(String value) {
+
+        if (value == null) {
+            return "";
+        }
+
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t");
     }
 }

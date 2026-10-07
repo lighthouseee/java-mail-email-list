@@ -3,7 +3,6 @@ package com.murach.servlet;
 import com.murach.mail.MailUtil;
 import com.murach.model.User;
 
-import jakarta.mail.MessagingException;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -28,7 +27,6 @@ public class EmailListServlet extends HttpServlet {
         String firstName = request.getParameter("firstName");
         String lastName = request.getParameter("lastName");
 
-        // Validate input
         if (email == null || email.isBlank()
                 || firstName == null || firstName.isBlank()
                 || lastName == null || lastName.isBlank()) {
@@ -44,7 +42,6 @@ public class EmailListServlet extends HttpServlet {
             return;
         }
 
-        // Create User object
         User user = new User(
                 firstName.trim(),
                 lastName.trim(),
@@ -53,21 +50,22 @@ public class EmailListServlet extends HttpServlet {
 
         try {
 
-            // Send confirmation email
+            // Send confirmation email through Brevo API
             MailUtil.sendWelcomeEmail(user);
 
-            // Create session and store user information
+            // Save user temporarily in session
             HttpSession session = request.getSession(true);
+
             session.setAttribute("user", user);
 
-            // Redirect to /thanks
+            // Redirect to thank-you page
             String redirectUrl = response.encodeRedirectURL(
                     request.getContextPath() + "/thanks"
             );
 
             response.sendRedirect(redirectUrl);
 
-        } catch (MessagingException | IllegalStateException e) {
+        } catch (IllegalStateException e) {
 
             e.printStackTrace();
 
@@ -87,7 +85,6 @@ public class EmailListServlet extends HttpServlet {
             HttpServletResponse response)
             throws ServletException, IOException {
 
-        // Only handle the /thanks URL
         if (!"/thanks".equals(request.getServletPath())) {
 
             response.sendRedirect(
@@ -97,12 +94,10 @@ public class EmailListServlet extends HttpServlet {
             return;
         }
 
-        // Get the existing session
         HttpSession session = request.getSession(false);
 
-        // If there is no session or no user,
-        // return to the registration form
-        if (session == null || session.getAttribute("user") == null) {
+        if (session == null
+                || session.getAttribute("user") == null) {
 
             response.sendRedirect(
                     request.getContextPath() + "/"
@@ -111,16 +106,12 @@ public class EmailListServlet extends HttpServlet {
             return;
         }
 
-        // Get user information from session
         User user = (User) session.getAttribute("user");
 
-        // Pass user information to thanks.jsp
         request.setAttribute("user", user);
 
-        // Remove user from session after retrieving it
         session.removeAttribute("user");
 
-        // Display thank-you page
         request.getRequestDispatcher("/thanks.jsp")
                 .forward(request, response);
     }
